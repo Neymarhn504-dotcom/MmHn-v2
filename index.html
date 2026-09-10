@@ -36,21 +36,36 @@ h2{margin-top:25px}.grid{display:grid;grid-template-columns:repeat(auto-fill,min
 <script>
 const $=id=>document.getElementById(id), audio=$('audio');
 let tracks=[], index=-1, favorites=JSON.parse(localStorage.getItem('mmhnFavs')||'[]'), showingFav=false;
+window.favoriteObjects=JSON.parse(localStorage.getItem('mmhnFavObjects')||'{}');
 
 $('go').onclick=search; $('q').onkeydown=e=>{if(e.key==='Enter')search()};
 $('searchTab').onclick=()=>{showingFav=false;activate(false);renderFav()};
 $('favTab').onclick=()=>{showingFav=true;activate(true);renderFav()};
 
-async function search(){
+function search(){
  const q=$('q').value.trim(); if(!q)return;
  showingFav=false; activate(false); $('heading').textContent='Resultados';
  $('results').innerHTML='<div class="empty">Buscando…</div>';
- try{
-  const url='https://itunes.apple.com/search?term='+encodeURIComponent(q)+'&entity=song&limit=40&media=music';
-  const data=await fetch(url).then(r=>r.json());
-  tracks=data.results.filter(x=>x.previewUrl);
+ const cb='mmhn_jsonp_'+Date.now();
+ const script=document.createElement('script');
+ let done=false;
+ window[cb]=function(data){
+  done=true;
+  delete window[cb];
+  script.remove();
+  tracks=(data.results||[]).filter(x=>x.previewUrl);
+  tracks.forEach(t=>{ window.favoriteObjects[String(t.trackId)]=t; });
+  localStorage.setItem('mmhnFavObjects',JSON.stringify(window.favoriteObjects));
   render(tracks);
- }catch(e){$('results').innerHTML='<div class="empty">No se pudo buscar. Revisa tu conexión.</div>'}
+ };
+ script.onerror=function(){
+  if(done)return;
+  delete window[cb];
+  script.remove();
+  $('results').innerHTML='<div class="empty">No se pudo buscar. Intenta otra vez.</div>';
+ };
+ script.src='https://itunes.apple.com/search?term='+encodeURIComponent(q)+'&country=US&media=music&entity=song&limit=40&callback='+cb;
+ document.body.appendChild(script);
 }
 function render(list){
  $('results').innerHTML='';
@@ -58,7 +73,7 @@ function render(list){
  list.forEach((t,i)=>{
   const c=document.createElement('div');c.className='card';
   const fav=favorites.includes(String(t.trackId));
-  c.innerHTML=`<img class="cover" src="${t.artworkUrl100||''}"><div class="name">${esc(t.trackName)}</div><div class="artist">${esc(t.artistName)}</div><div class="actions"><button class="play">▶ Escuchar</button><button class="fav">${fav?'♥':'♡'}</button></div>`;
+  c.innerHTML=`<img class="cover" src="${t.artworkUrl100||''}"><div class="name">${esc(t.trackName)}</div><div class="artist">${esc(t.artistName)}</div><div class="actions"><button class="play">▶ Escuchar</button><button class="fav">${fav?'♥':'♡'}</button></div><a href="${t.trackViewUrl||'#'}" target="_blank" rel="noopener" style="display:block;margin-top:8px;color:#bbb;font-size:12px;text-decoration:none">Ver en Apple Music ↗</a>`;
   c.querySelector('.play').onclick=()=>playTrack(i,list);
   c.querySelector('.fav').onclick=()=>toggleFav(t);
   $('results').appendChild(c);
@@ -69,12 +84,12 @@ function renderFav(){
  const list=favorites.map(id=>favorites.find(x=>x===id)).map(id=>window.favoriteObjects?.[id]).filter(Boolean);
  if(list.length)render(list);else $('results').innerHTML='<div class="empty">Todavía no tienes favoritos. ❤️</div>';
 }
-window.favoriteObjects={};
 function toggleFav(t){
  const id=String(t.trackId);
  window.favoriteObjects[id]=t;
  if(favorites.includes(id))favorites=favorites.filter(x=>x!==id);else favorites.push(id);
  localStorage.setItem('mmhnFavs',JSON.stringify(favorites));
+ localStorage.setItem('mmhnFavObjects',JSON.stringify(window.favoriteObjects));
  render(showingFav?favorites.map(x=>window.favoriteObjects[x]).filter(Boolean):tracks);
 }
 function playTrack(i,list){
